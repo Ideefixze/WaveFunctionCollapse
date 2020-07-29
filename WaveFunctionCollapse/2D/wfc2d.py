@@ -15,6 +15,19 @@ DIR_INPUT = os.path.join(DIR,"input")
 ROTATIONS = False
 PROP_ID = 0
 
+def cellsDirs(pos, size):
+
+    x, y = pos
+    width, height = size
+    dirs = []
+
+    if x > 0: dirs.append([-1,0])
+    if x < width-1: dirs.append([1,0])
+    if y > 0: dirs.append([0,-1])
+    if y < height-1: dirs.append([0,1])
+
+    return dirs
+
 def initWorkspace():
     files = glob.glob(DIR_OUTPUT+"/*")
     for f in files:
@@ -80,6 +93,7 @@ def createPatternsFromImage(imgsrc:Image, N:int):
     imgwrap = crop(imgsrc,0,0,imgsrc.width,imgsrc.height)
 
     img = Image.new('RGB', (imgsrc.width + N, imgsrc.height + N))
+    #img = Image.new('RGB', (imgsrc.width, imgsrc.height))
     img.paste(imgsrc,(0,0))
     img.paste(imgwrap,(0,imgsrc.height))
     img.paste(imgwrap,(imgsrc.width,0))
@@ -264,6 +278,22 @@ class WFC2D:
         else:
             return
 
+    def __stackpropagate(self, pos:list):
+        stack = [pos]
+
+        while len(stack)>0:
+            currentpos=stack.pop()
+            for dir in cellsDirs(currentpos,[self.cellCount,self.cellCount]):
+                nextposx = (currentpos[0]+dir[0])%len(self.cells)
+                nextposy = (currentpos[1]+dir[1])%len(self.cells)
+                haschanged = False
+                if self.cells[currentpos[0]][currentpos[1]]:
+                    haschanged = self.__validate(self.cells[currentpos[0]][currentpos[1]], self.cells[nextposx][nextposy], dir)
+
+
+                if haschanged:
+                    stack.append((nextposx,nextposy))
+
     def __validate(self, cellA:list, cellB:list, dir:list):
         """Removes all unavailable states from cellB looking from the perspective of cellA."""
         newcell = list()
@@ -272,6 +302,7 @@ class WFC2D:
                 if [i,j, dir] in self.constrains:
                     if j not in newcell:
                         newcell.append(j)
+                    break   
 
         haschanged = collections.Counter(cellB) != collections.Counter(newcell)
         cellB[:]=newcell
@@ -288,30 +319,28 @@ class WFC2D:
         try:
             k=0
             while True:
-                self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
+                if k%1==0:
+                    self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
                 k=k+1
 
-                if k==1000:
-                    print("Possible deadlock! Terminating.")
-                    break
-
                 cellscopy = copy.deepcopy(self.cells)
-                
+
                 pos=self.__observe()
                 if pos==False:
                     break
 
-                self.__propagate(pos,[1,0])
-                self.__propagate(pos,[-1,0])
-                self.__propagate(pos,[0,1])
-                self.__propagate(pos,[0,-1])
-
+                self.__stackpropagate(pos)
                 
+                if k>self.cellCount*self.cellCount*2:
+                    print("Possible deadlock! Restarting...")
+                    initWorkspace()
+                    self.__reset()
+                    self.generate()
+                    return
+
                 if self.hasError():
-                    #print("Detected error!")
                     self.cells = copy.deepcopy(cellscopy)
                     continue
-
                 
         except:
             print("Found exception: \n")
@@ -327,13 +356,16 @@ class WFC2D:
                 if not j:
                     return True
         return False
+
+    def __reset(self):
+        self.__initPatterns()
+        self.__initConstrains()
+        self.__initCells()
         
-
-
 
 initWorkspace()
 
-wfc = WFC2D(Image.open(os.path.join(DIR_INPUT,"input3.png")), 2, 10)
+wfc = WFC2D(Image.open(os.path.join(DIR_INPUT,"input3.png")), 2, 20)
 wfc.generate()
 
 
