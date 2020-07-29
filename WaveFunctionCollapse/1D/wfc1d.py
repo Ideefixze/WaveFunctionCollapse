@@ -14,7 +14,121 @@ import collections
 
 EMPTY_INDICATOR = 'EMPTY-CELL'
 
-def countPatterns(input:str, N:int):
+
+class WFC:
+    def __init__(self, inputstr:str, n:int, cellsCount:int):
+        self.input = inputstr
+        self.n = n
+        self.cellsCount = cellsCount
+        self.initPatterns()
+        self.initConstrains()
+        self.reset()
+        self.finalstate = list()
+
+    def initPatterns(self):
+        
+        """
+        Returns a dict of patterns (key, value), where key is a found pattern and value is number of pattern appearing in input.
+        
+        Does count patterns that wrap (example: 'ADAM' N=3, will find pattern MAD).
+        """
+        input = self.input
+        self.patterns = dict()
+        i = self.n
+        #If we want all patterns at most N len:
+        #for i in range(2,N+1):
+        wrapinput = input[len(input)-i+1:len(input)] + input 
+        chunks = [wrapinput[j:j+i] for j in range(0, len(wrapinput))]
+        for k in chunks:
+            if len(k)==i:
+                self.patterns.setdefault(k,0)
+                self.patterns[k]+=1
+        return self.patterns
+
+    def initCells(self):
+        """
+        Makes every cell a superposition of all possible states.
+        """
+        self.cells = list()
+        for i in range(self.cellsCount):
+            cell = list()
+            for key in self.patterns.keys():
+                cell.append(key)
+            self.cells.append(cell)
+
+    def initConstrains(self):
+        self.constrains = list()
+        for i in self.patterns.keys():
+            for j in self.patterns.keys():
+                checkstr = i+j
+                foundpatterns = getPatternsNoWrap(checkstr,self.n)
+                if set(foundpatterns)<=set(self.patterns.keys()):
+                    self.constrains.append([i,j])
+
+    def __observe(self):
+        """
+        Selects cell with minimal entropy and chooses a state randomly.
+        """
+        min = len(self.patterns)+1
+        minid = -1
+        for id,i in enumerate(self.cells):
+            if self.finalstate[id]==EMPTY_INDICATOR:
+                if(len(i)<min):
+                    minid = id
+                    min = len(i)
+
+        #Random one of possible choices at cell with minimal entropy
+        #Possible change: random distribution using number of patterns that appeared in input
+        self.finalstate[minid] = self.cells[minid][random.randint(0,len(self.cells[minid])-1)]
+        self.cells[minid] = [self.finalstate[minid]]
+        return minid
+
+    def __validate(self, cellA:list, cellB:list):
+        """Removes all unavailable states from cellB looking from the perspective of cellA."""
+        newcell = list()
+        for j in cellB:
+            for i in cellA:
+                if [i,j] in self.constrains:
+                    if j not in newcell:
+                        newcell.append(j)
+
+        haschanged = collections.Counter(cellB) != collections.Counter(newcell)
+        cellB[:]=newcell
+        return haschanged
+
+    def __propagate(self, pos:int):
+        """
+        Propagate change to other cells, reducing possibilites of their states. 
+        """
+        
+        #Update right neighbour
+        nextpos = (pos+1)%len(self.cells)
+        haschanged = False
+        if self.cells[pos]:
+            haschanged = self.__validate(self.cells[pos], self.cells[nextpos])
+
+        if haschanged:
+            self.__propagate(nextpos)
+        else:
+            return
+    
+    def generate(self):
+        self.finalstate = list()
+        for i in range(len(self.cells)):
+            self.finalstate.append(EMPTY_INDICATOR)
+
+        while EMPTY_INDICATOR in self.finalstate:
+            pos = self.__observe()
+            self.__propagate(pos)
+
+        self.reset()
+        return ''.join([str(elem) for elem in self.finalstate])
+
+    def reset(self):
+        self.initCells()
+
+
+def getPatternsWrap(input:str, N:int):
     """
     Returns a dict of patterns (key, value), where key is a found pattern and value is number of pattern appearing in input.
     
@@ -32,7 +146,7 @@ def countPatterns(input:str, N:int):
             patterns[k]+=1
     return patterns
 
-def countPatternsNoWrap(input:str, N:int):
+def getPatternsNoWrap(input:str, N:int):
     """
     Returns a dict of patterns (key, value), where key is a found pattern and value is number of pattern appearing in input.
     
@@ -48,88 +162,6 @@ def countPatternsNoWrap(input:str, N:int):
             patterns.setdefault(k,0)
             patterns[k]+=1
     return patterns
-
-def initializeCells(patterns:dict, n:int):
-    """
-    Makes every cell a superposition of all possible states.
-    """
-    cells = list()
-    for i in range(n):
-        cell = list()
-        for key in patterns.keys():
-            cell.append(key)
-        cells.append(cell)
-    return cells
-
-def observe(patterns:dict, cells:list, finalstate:list):
-    """
-    Selects cell with minimal entropy and chooses a state randomly.
-    """
-    min = len(patterns)+1
-    minid = -1
-    for id,i in enumerate(cells):
-        if finalstate[id]==EMPTY_INDICATOR:
-            if(len(i)<min):
-                minid = id
-                min = len(i)
-
-    #Random one of possible choices at cell with minimal entropy
-    #Possible change: random distribution using number of patterns that appeared in input
-    finalstate[minid] = cells[minid][random.randint(0,len(cells[minid])-1)]
-    cells[minid] = [finalstate[minid]]
-    return minid
-
-
-def validate(patterns:dict, cellA:list, cellB:list):
-    """Removes all unaviable states from cellB looking from the perspective of cellA."""
-
-    newcell = list()
-    for j in cellB:
-        for i in cellA:
-            checkstr = i+j
-            newpatterns=countPatternsNoWrap(checkstr, len(i))
-            #If there is at least one 
-            valok = True
-            for k in newpatterns:
-                if k not in patterns:
-                    valok=False
-                    break
-
-            if valok and j not in newcell:
-                newcell.append(j)
-
-    haschanged = collections.Counter(cellB) != collections.Counter(newcell)
-    cellB[:]=newcell
-    return haschanged        
-
-def propagate(patterns:dict, cells:list, pos:int):
-    """
-    Propagate change to other cells, reducing possibilites of their states. 
-    """
-    #Update right neighbour
-    nextpos = (pos+1)%len(cells)
-    haschanged = False
-    if cells[pos]:
-        haschanged = validate(patterns, cells[pos], cells[nextpos])
-        
-    if haschanged:
-        propagate(patterns, cells, nextpos)
-    else:
-        return
-
-
-def WFC(data:str, n:int, outputCellCount:int):
-    patterns = countPatterns(data, n)
-    cells = initializeCells(patterns,outputCellCount)
-    finalstate = list()
-    for i in range(outputCellCount):
-        finalstate.append(EMPTY_INDICATOR)
-
-    while EMPTY_INDICATOR in finalstate:
-        pos = observe(patterns,cells,finalstate)
-        propagate(patterns,cells,pos)
-
-    print(''.join([str(elem) for elem in finalstate]))
     
 if __name__ == "__main__":
     print("Input string:")
@@ -140,5 +172,7 @@ if __name__ == "__main__":
     cellCount = int(input())
     print("Number of strings to generate:")
     count = int(input())
+    wfc = WFC(inputstr, N, cellCount)
     for i in range(count):
-        WFC(inputstr, N, cellCount)
+        print(wfc.generate())
+        
