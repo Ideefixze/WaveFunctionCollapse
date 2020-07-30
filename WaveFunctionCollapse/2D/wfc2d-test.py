@@ -123,6 +123,44 @@ def createPatternsFromImage(imgsrc:Image, N:int):
     #img.show()
     return patterns
 
+def createPatternsFromFile(filename:str, N:int):
+    """
+    Creates NxN patterns from image with given filename. Returns a dict (k,v) where k = hash of img, v = img.
+    """
+    patterns = dict()
+    imgsrc = Image.open(os.path.join(DIR,"input",filename)).convert('RGB')
+    imgwrap = crop(imgsrc,0,0,imgsrc.width,imgsrc.height)
+
+    img = Image.new('RGB', (imgsrc.width + N, imgsrc.height + N))
+    img.paste(imgsrc,(0,0))
+    img.paste(imgwrap,(0,imgsrc.height))
+    img.paste(imgwrap,(imgsrc.width,0))
+    img.paste(imgwrap,(imgsrc.width,imgsrc.height))
+    #imgwrap.show()
+    #img.show()
+    for x in range(img.size[0]-N):
+        for y in range(img.size[1]-N):
+            pattern = crop(img, x, y,N,N)
+            key = f"pat_{x}_{y}_r{0}"
+            pattern.save(fp=os.path.join(DIR_OUTPUT,key+".png"))
+            key = imgHash(pattern)
+            patterns.setdefault(key,0)
+            patterns[key] = pattern.copy()
+            #print(f"----- {imgHash(patterns[key])} ------ {key}")
+
+            if ROTATIONS:
+                for i in range(1,4):
+                    pattern = pattern.rotate(90)
+                    key = f"pat_{x}_{y}_r{i}"
+                    #pattern.save(fp=os.path.join(DIR_OUTPUT,key+".png"))
+                    key = imgHash(pattern)
+                    patterns.setdefault(key,0)
+                    patterns[key] = pattern.copy()
+
+    #print(patterns)
+    #img.show()
+    return patterns
+
 
 class WFC2D:
     def __init__(self, inputimg:Image, N:int, cellCount:int):
@@ -163,20 +201,27 @@ class WFC2D:
         for idrow,i in enumerate(self.cells):
             for id, j in enumerate(self.cells[idrow]):
                 if len(j)>1:
-                    val = len(j)
-                    if(val<min):
+                    if(len(j)<min):
                         minidx = idrow
                         minidy = id
-                        min = val
+                        min = len(j)
 
         #Random one of possible choices at cell with minimal entropy
         #Possible change: random distribution using number of patterns that appeared in input
-        
+        #finalstate[minid] = cells[minid][random.randint(0,len(cells[minid])-1)]
+        #print(f"MINI: {min}")
+        """    while True:
+            minidx = random.randint(0,len(cells)-1)
+            minidy = random.randint(0,len(cells)-1)
+            m = len(cells[minidx][minidy])
+            if m==min:
+                break
+        """
         if minidx == -1:
             return False
 
         self.cells[minidx][minidy] = [self.cells[minidx][minidy][random.randint(0,len(self.cells[minidx][minidy])-1)]]
-        
+
         return [minidx, minidy]
 
     def imageFromCells(self):
@@ -217,53 +262,51 @@ class WFC2D:
         """
         #print(f"Propagatin: {pos}, with dir: {dir}")
         #Update right neighbour
-        next_pos_x = (pos[0]+dir[0])%len(self.cells)
-        next_pos_y = (pos[1]+dir[1])%len(self.cells)
-        has_changed = False
+        nextposx = (pos[0]+dir[0])%len(self.cells)
+        nextposy = (pos[1]+dir[1])%len(self.cells)
+        haschanged = False
         if self.cells[pos[0]][pos[1]]:
-            has_changed = self.__validate(self.cells[pos[0]][pos[1]], self.cells[next_pos_x][next_pos_y], dir)
+            haschanged = self.__validate(self.cells[pos[0]][pos[1]], self.cells[nextposx][nextposy], dir)
             
-        if has_changed:
+        if haschanged:
             #self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"prop{PROP_ID}.png"))
             PROP_ID+=1
-            self.__propagate([next_pos_x,next_pos_y],[1,0])
-            self.__propagate([next_pos_x,next_pos_y],[-1,0])
-            self.__propagate([next_pos_x,next_pos_y],[0,1])
-            self.__propagate([next_pos_x,next_pos_y],[0,-1])
+            self.__propagate([nextposx,nextposy],[1,0])
+            self.__propagate([nextposx,nextposy],[-1,0])
+            self.__propagate([nextposx,nextposy],[0,1])
+            self.__propagate([nextposx,nextposy],[0,-1])
         else:
             return
 
     def __stackpropagate(self, pos:list):
         stack = [pos]
+
         while len(stack)>0:
-            current_pos=stack.pop()
-            for dir in cellsDirs(current_pos,[self.cellCount,self.cellCount]):
-                next_pos_x = (current_pos[0]+dir[0])%len(self.cells)
-                next_pos_y = (current_pos[1]+dir[1])%len(self.cells)
-                
-                for tile in set(self.cells[next_pos_x][next_pos_y]):
-                    possible_tile = any([cur_tile,tile,dir] in self.constrains for cur_tile in self.cells[current_pos[0]][current_pos[1]])
-                    if not possible_tile:
-                        self.cells[next_pos_x][next_pos_y].remove(tile)
-                        if [next_pos_x, next_pos_y] not in stack:
-                            stack.append([next_pos_x,next_pos_y])
-                
+            currentpos=stack.pop()
+            for dir in cellsDirs(currentpos,[self.cellCount,self.cellCount]):
+                nextposx = (currentpos[0]+dir[0])%len(self.cells)
+                nextposy = (currentpos[1]+dir[1])%len(self.cells)
+                haschanged = False
+                if self.cells[currentpos[0]][currentpos[1]]:
+                    haschanged = self.__validate(self.cells[currentpos[0]][currentpos[1]], self.cells[nextposx][nextposy], dir)
+
+
+                if haschanged:
+                    stack.append((nextposx,nextposy))
 
     def __validate(self, cellA:list, cellB:list, dir:list):
         """Removes all unavailable states from cellB looking from the perspective of cellA."""
         newcell = list()
         for j in cellB:
-            #newcell = any([[i,j,dir] in self.constrains for i in cellA])
-            
             for i in cellA:
                 if [i,j, dir] in self.constrains:
                     if j not in newcell:
                         newcell.append(j)
                     break   
 
-        has_changed = collections.Counter(cellB) != collections.Counter(newcell)
+        haschanged = collections.Counter(cellB) != collections.Counter(newcell)
         cellB[:]=newcell
-        return has_changed
+        return haschanged
 
     def __hasError(self):
         for idrow, i in enumerate(self.cells):
@@ -276,19 +319,19 @@ class WFC2D:
         try:
             k=0
             while True:
-                self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
+                if k%1==0:
+                    self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
                 k=k+1
 
-                cells_copy = copy.deepcopy(self.cells)
+                cellscopy = copy.deepcopy(self.cells)
 
                 pos=self.__observe()
                 if pos==False:
                     break
-                self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
-                self.__stackpropagate(pos)
 
+                self.__stackpropagate(pos)
                 
-                if k>self.cellCount*self.cellCount*4:
+                if k>self.cellCount*self.cellCount*2:
                     print("Possible deadlock! Restarting...")
                     initWorkspace()
                     self.__reset()
@@ -296,9 +339,8 @@ class WFC2D:
                     return
 
                 if self.hasError():
-                    self.cells = copy.deepcopy(cells_copy)
+                    self.cells = copy.deepcopy(cellscopy)
                     continue
-
                 
         except:
             print("Found exception: \n")
@@ -325,6 +367,4 @@ initWorkspace()
 
 wfc = WFC2D(Image.open(os.path.join(DIR_INPUT,"input3.png")), 2, 10)
 wfc.generate()
-
-
 
