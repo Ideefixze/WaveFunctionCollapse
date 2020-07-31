@@ -324,7 +324,6 @@ class WFC2D:
         self.animation_frames_gif[0].save(os.path.join(DIR_OUTPUT,"out.gif"),format='GIF',save_all=True,append_images=self.animation_frames_gif[1:],duration=20,loop=0)
         plt.show()
 
-
     def __reset(self):
         print("Reseting data...")
         self.__initCells()
