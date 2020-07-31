@@ -1,22 +1,30 @@
 import os
 import random
 import collections
-from PIL import Image, ImageChops, ImageDraw, ImageSequence
+from PIL import Image, ImageChops, ImageDraw, ImageSequence, ImagePalette
 import pathlib
 import glob
 import hashlib
 from pandas import *
 import copy
 import cProfile
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+import matplotlib.animation as animation
+import numpy
+import math
+import calendar
+import time
 
 DIR=str(pathlib.Path(__file__).parent.absolute())
 DIR_OUTPUT = os.path.join(DIR,"output")
 DIR_INPUT = os.path.join(DIR,"input")
 ROTATIONS = False
-PROP_ID = 0
 
 def cellsDirs(pos, size):
-
+    """
+    Returns all possible directions in a position within a 2D array of given size.
+    """
     x, y = pos
     width, height = size
     dirs = []
@@ -25,6 +33,18 @@ def cellsDirs(pos, size):
     if x < width-1: dirs.append([1,0])
     if y > 0: dirs.append([0,-1])
     if y < height-1: dirs.append([0,1])
+
+    return dirs
+
+def cellsDirsNoPos():
+    """
+    Returns all possible directions.
+    """
+    dirs = []
+    dirs.append([-1,0])
+    dirs.append([1,0])
+    dirs.append([0,-1])
+    dirs.append([0,1])
 
     return dirs
 
@@ -53,7 +73,16 @@ def get_concat_v(im1, im2):
     dst.paste(im2, (0, im1.height))
     return dst
 
+def smart_get_concat(im1,im2,dir):
+    if dir[0]!=0:
+        return get_concat_h(im1,im2)
+    else:
+        return get_concat_v(im1,im2)
+
 def createPatternsFromImages(img1:Image, img2:Image, dir:list):
+    """
+    Returns all patterns created from concatenation of two images with given direction.
+    """
     patterns = dict()
     if dir[0]!=0:
         concatenated = get_concat_h(img1,img2)
@@ -68,7 +97,6 @@ def createPatternsFromImages(img1:Image, img2:Image, dir:list):
                     key = imgHash(pattern)
                     patterns.setdefault(key,0)
                     patterns[key] = pattern.copy()
-        return patterns
     elif dir[1]!=0:
             concatenated = get_concat_v(img1,img2)
             for y in range(img1.height):
@@ -82,8 +110,7 @@ def createPatternsFromImages(img1:Image, img2:Image, dir:list):
                         key = imgHash(pattern)
                         patterns.setdefault(key,0)
                         patterns[key] = pattern.copy()
-            return patterns
-    return []
+    return patterns
 
 def createPatternsFromImage(imgsrc:Image, N:int):
     """
@@ -92,35 +119,27 @@ def createPatternsFromImage(imgsrc:Image, N:int):
     patterns = dict()
     imgwrap = crop(imgsrc,0,0,imgsrc.width,imgsrc.height)
 
-    img = Image.new('RGB', (imgsrc.width + N, imgsrc.height + N))
-    #img = Image.new('RGB', (imgsrc.width, imgsrc.height))
+    img = Image.new('RGB', (imgsrc.width+N, imgsrc.height+N))
     img.paste(imgsrc,(0,0))
     img.paste(imgwrap,(0,imgsrc.height))
     img.paste(imgwrap,(imgsrc.width,0))
     img.paste(imgwrap,(imgsrc.width,imgsrc.height))
-    #imgwrap.show()
-    #img.show()
+
     for x in range(img.size[0]-N):
         for y in range(img.size[1]-N):
             pattern = crop(img, x, y,N,N)
             key = f"pat_{x}_{y}_r{0}"
-            #pattern.save(fp=os.path.join(DIR_OUTPUT,key+".png"))
             key = imgHash(pattern)
             patterns.setdefault(key,0)
             patterns[key] = pattern.copy()
-            #print(f"----- {imgHash(patterns[key])} ------ {key}")
             if ROTATIONS:
                 for i in range(1,4):
                     pattern = pattern.rotate(90)
                     key = f"pat_{x}_{y}_r{i}"
-                    #pattern.save(fp=os.path.join(DIR_OUTPUT,key+".png"))
                     key = imgHash(pattern)
                     patterns.setdefault(key,0)
                     patterns[key] = pattern.copy()
-    for i,pattern in enumerate(patterns.values(),0):
-        pattern.save(os.path.join(DIR_OUTPUT,f"pattern_{i}.png"))
-    #print(patterns)
-    #img.show()
+    
     return patterns
 
 
@@ -129,13 +148,28 @@ class WFC2D:
         self.inputimg = inputimg
         self.N = N
         self.cellCount = cellCount
-        self.__initPatterns()
-        self.__initConstrains()
+        self.__initPatterns(show=True)
+        self.__initConstraints(show=False)
         self.__initCells()
+        self.animation_frames_plt = list()
+        self.animation_frames_gif = list()
 
-    def __initPatterns(self):
+    def __initPatterns(self,show=True):
         self.patterns = createPatternsFromImage(self.inputimg, self.N)
         print(f"Finished initing patterns. Total number of patterns: {len(self.patterns)}")
+        
+        #Makes simple patterns plot.
+        if not show:
+            return
+        s = math.sqrt(len(self.patterns))+1
+        fig = plt.figure(figsize=(self.N*4,self.N*4))
+        for i,pattern in enumerate(self.patterns.values(),1):
+            fig.add_subplot(s,s,i)
+            plt.axis('off')
+            plt.imshow(pattern)
+        fig.canvas.set_window_title('Patterns')
+        plt.show()
+        plt.close()
 
     def __initCells(self):
         """
@@ -180,90 +214,65 @@ class WFC2D:
         return [minidx, minidy]
 
     def imageFromCells(self):
+        """
+        Creates image from cells. Each cell has a list of possible patterns, if it's length is 1, then it means it is collapsed and we can
+        map it to our patterns to create one unique image.
+        """
         outputImage = Image.new('RGB',(self.N*self.cellCount,self.N*self.cellCount),color=(128,128,128))
         for idrow,i in enumerate(self.cells):
             for id, j in enumerate(self.cells[idrow]):
-                if j:
+                if len(j):
                     pattern = self.patterns[j[0]]
                     outputImage.paste(pattern, (idrow*self.N, id*self.N))
         return outputImage
 
-    def __initConstrains(self):
-        self.constrains = list()
+
+    def __initConstraints(self,show=True):
+        self.constraints = list()
         for keyi,itemi in self.patterns.items():
             for keyj,itemj in self.patterns.items():
-                foundpatterns = createPatternsFromImages(itemi, itemj, [1,0])
-                if set(foundpatterns)<=set(self.patterns.keys()):
-                    self.constrains.append([keyi,keyj, [1,0]])
+                for dir in cellsDirsNoPos():
+                    foundpatterns = createPatternsFromImages(itemi, itemj, dir)
+                    if set(foundpatterns)<=set(self.patterns.keys()):
+                        self.constraints.append([keyi,keyj, dir])
 
-                foundpatterns = createPatternsFromImages(itemi, itemj, [-1,0])
-                if set(foundpatterns)<=set(self.patterns.keys()):
-                    self.constrains.append([keyi,keyj, [-1,0]])
+        print(f"Finished calculating constraints. Total number of constraints: {len(self.constraints)}")
 
-                foundpatterns = createPatternsFromImages(itemi, itemj, [0,1])
-                if set(foundpatterns)<=set(self.patterns.keys()):
-                    self.constrains.append([keyi,keyj, [0,1]])
-
-                foundpatterns = createPatternsFromImages(itemi, itemj, [0,-1])
-                if set(foundpatterns)<=set(self.patterns.keys()):
-                    self.constrains.append([keyi,keyj, [0,-1]])
-
-        print(f"Finished calculating constrains. Total number of constrains: {len(self.constrains)}")
-
-    def __propagate(self, pos:list, dir:list):
-        global PROP_ID
-        """
-        Propagate change to other cells, reducing possibilites of their states. 
-        """
-        #print(f"Propagatin: {pos}, with dir: {dir}")
-        #Update right neighbour
-        next_pos_x = (pos[0]+dir[0])%len(self.cells)
-        next_pos_y = (pos[1]+dir[1])%len(self.cells)
-        has_changed = False
-        if self.cells[pos[0]][pos[1]]:
-            has_changed = self.__validate(self.cells[pos[0]][pos[1]], self.cells[next_pos_x][next_pos_y], dir)
-            
-        if has_changed:
-            #self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"prop{PROP_ID}.png"))
-            PROP_ID+=1
-            self.__propagate([next_pos_x,next_pos_y],[1,0])
-            self.__propagate([next_pos_x,next_pos_y],[-1,0])
-            self.__propagate([next_pos_x,next_pos_y],[0,1])
-            self.__propagate([next_pos_x,next_pos_y],[0,-1])
-        else:
+        #Makes a simple constraints plots.
+        if not show:
             return
+        fig = plt.figure(figsize=(self.N*4,self.N*4))
+        s = math.sqrt(len(self.constraints))+1
+        for i,c in enumerate(self.constraints,1):
+            fig.add_subplot(s,s,i)
+            plt.axis('off')
+            im = smart_get_concat(self.patterns[c[0]],self.patterns[c[1]],c[2])
+
+            plt.imshow(im)
+        fig.canvas.set_window_title('Constraints')
+        plt.show()
+        plt.close()
+
 
     def __stackpropagate(self, pos:list):
+        """Propagates constraint information to all neighbours. Repeat until no changes"""
         stack = [pos]
+
         while len(stack)>0:
             current_pos=stack.pop()
             for dir in cellsDirs(current_pos,[self.cellCount,self.cellCount]):
-                next_pos_x = (current_pos[0]+dir[0])%len(self.cells)
-                next_pos_y = (current_pos[1]+dir[1])%len(self.cells)
-                
+                next_pos_x = (current_pos[0]+dir[0])
+                next_pos_y = (current_pos[1]+dir[1])
+
                 for tile in set(self.cells[next_pos_x][next_pos_y]):
-                    possible_tile = any([cur_tile,tile,dir] in self.constrains for cur_tile in self.cells[current_pos[0]][current_pos[1]])
+                    #Check if any combinations match with constraints for a given tile
+                    possible_tile = any([cur_tile,tile,dir] in self.constraints for cur_tile in self.cells[current_pos[0]][current_pos[1]])
+
+                    #If not, this tile is invalid, remove it and propagate information to the neighbours
                     if not possible_tile:
                         self.cells[next_pos_x][next_pos_y].remove(tile)
                         if [next_pos_x, next_pos_y] not in stack:
                             stack.append([next_pos_x,next_pos_y])
-                
-
-    def __validate(self, cellA:list, cellB:list, dir:list):
-        """Removes all unavailable states from cellB looking from the perspective of cellA."""
-        newcell = list()
-        for j in cellB:
-            #newcell = any([[i,j,dir] in self.constrains for i in cellA])
-            
-            for i in cellA:
-                if [i,j, dir] in self.constrains:
-                    if j not in newcell:
-                        newcell.append(j)
-                    break   
-
-        has_changed = collections.Counter(cellB) != collections.Counter(newcell)
-        cellB[:]=newcell
-        return has_changed
 
     def __hasError(self):
         for idrow, i in enumerate(self.cells):
@@ -273,10 +282,18 @@ class WFC2D:
         return False
 
     def generate(self):
+        fig = plt.figure()
+        fig.canvas.set_window_title("Output")
         try:
             k=0
             while True:
-                self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
+                im = self.imageFromCells()
+                #Copy current frame into plt and gif list
+                #matplotlib forces you to specify ffmpeg libs
+                #PILLOW can create gifs automatically, so we use it
+                #to make things easier.
+                self.animation_frames_plt.append([plt.imshow(im,animated=True)])
+                self.animation_frames_gif.append(im.convert('P',palette=Image.ADAPTIVE))
                 k=k+1
 
                 cells_copy = copy.deepcopy(self.cells)
@@ -284,18 +301,14 @@ class WFC2D:
                 pos=self.__observe()
                 if pos==False:
                     break
-                self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"frame{k}.png"))
                 self.__stackpropagate(pos)
-
                 
                 if k>self.cellCount*self.cellCount*4:
-                    print("Possible deadlock! Restarting...")
-                    initWorkspace()
+                    print("Possible error: deadlock. Restart program or change input.")
                     self.__reset()
-                    self.generate()
                     return
 
-                if self.hasError():
+                if self.__hasError():
                     self.cells = copy.deepcopy(cells_copy)
                     continue
 
@@ -305,26 +318,29 @@ class WFC2D:
             print(DataFrame(self.cells))
             self.imageFromCells().save(os.path.join(DIR_OUTPUT,f"EXCEPTION.png"))
             raise
+        
+        
+        ani = animation.ArtistAnimation(fig,self.animation_frames_plt,interval=50,repeat=False)
+        self.animation_frames_gif[0].save(os.path.join(DIR_OUTPUT,"out.gif"),format='GIF',save_all=True,append_images=self.animation_frames_gif[1:],duration=20,loop=0)
+        plt.show()
 
-        self.imageFromCells().show()
-
-    def hasError(self):
-        for idrow,i in enumerate(self.cells):
-            for id, j in enumerate(self.cells[idrow]):
-                if not j:
-                    return True
-        return False
 
     def __reset(self):
-        self.__initPatterns()
-        self.__initConstrains()
+        print("Reseting data...")
         self.__initCells()
+        self.animation_frames_plt=list()
+        self.animation_frames_gif=list()
         
-
-initWorkspace()
-
-wfc = WFC2D(Image.open(os.path.join(DIR_INPUT,"input3.png")), 2, 10)
-wfc.generate()
+if __name__ == "__main__":
+    initWorkspace()
+    print("Input filename (only .png images files from input folder):")
+    fname = input()
+    print("N parameter for NxN patterns:")
+    n = int(input())
+    print("Number of cells (with NxN size) that will make CxC image:")
+    c = int(input())
+    wfc = WFC2D(Image.open(os.path.join(DIR_INPUT,fname)), n, c)
+    wfc.generate()
 
 
 
