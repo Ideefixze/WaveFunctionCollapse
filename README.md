@@ -6,8 +6,8 @@ Procedural generation with constraints.
 ## 2D
 For an input:
 
-![Example input](WaveFunctionCollapse/2D/input/boxes.png)
+![Example input](WaveFunctionCollapse/2D/input/boxes.png =100x100)
 
 here is an output:
 
-![Example output](WaveFunctionCollapse/2D/example.gif)
+![Example output](WaveFunctionCollapse/2D/example.gif =300x300)
