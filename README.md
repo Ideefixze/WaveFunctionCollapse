@@ -13,7 +13,7 @@ For an input string generates string of similar structure, respecting all constr
 ## 2D
 For an input:
 
-<img src="WaveFunctionCollapse/2D/input/boxes.png">
+<img src="WaveFunctionCollapse/2D/example_in.png">
 
 here is an output:
 
