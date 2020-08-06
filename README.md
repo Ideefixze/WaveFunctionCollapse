@@ -1,5 +1,5 @@
 # WaveFunctionCollapse
-Procedural generation with constraints.
+Procedural generation with constraints based on Wave Function Collapse algorithm.
 
 ## 1D
 For an input string generates string of similar structure, respecting all constrains in an input string.
