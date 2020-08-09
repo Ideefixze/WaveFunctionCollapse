@@ -20,9 +20,9 @@ here is an output:
 <img src="WaveFunctionCollapse/2D/example.gif">
 
 ### Remember:<br>
-Not all inputs are viable<br>
-Input should be small and simple<br>
-Big input will add a lot of constraints and it may take ages to complete<br>
-Often it does have a "deadlock" meaning it is unsolvable, script will end without an output<br>
+- Not all inputs are viable<br>
+- Input should be small and simple<br>
+- Big input will add a lot of constraints and it may take ages to complete<br>
+- Often it does have a "deadlock" meaning it is unsolvable, script will end without an output<br>
 
 
